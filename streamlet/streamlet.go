@@ -28,6 +28,8 @@ type Streamlet struct {
 	forkedBlocks           chan *blockchain.Block
 	echoedBlock            map[crypto.Identifier]struct{}
 	echoedVote             map[crypto.Identifier]struct{}
+	committedBlockHight    int
+	committedBlockView     types.View
 }
 
 // NewStreamlet creates a new Streamlet instance
@@ -50,6 +52,8 @@ func NewStreamlet(
 	sl.notarizedChain = make([][]*blockchain.Block, 0)
 	sl.echoedBlock = make(map[crypto.Identifier]struct{})
 	sl.echoedVote = make(map[crypto.Identifier]struct{})
+	sl.committedBlockHight = 0
+	sl.committedBlockView = 0
 	//sl.pm.AdvanceView(0)
 	return sl
 }
@@ -355,12 +359,15 @@ func (sl *Streamlet) commitRule() (bool, *blockchain.Block) {
 	}
 	secondBlock := secondBlocks[0]
 	firstBlocks := sl.notarizedChain[height-3]
-	if len(firstBlocks) != 1 {
+
+	if len(firstBlocks) != 1 || height-2 == sl.committedBlockHight {
 		return false, nil
 	}
 	firstBlock := firstBlocks[0]
 	// check three-chain
 	if ((firstBlock.View + 1) == secondBlock.View) && ((secondBlock.View + 1) == lastBlock.View) {
+		sl.committedBlockHight = height - 1
+		sl.committedBlockView = secondBlock.View
 		return true, secondBlock
 	}
 	return false, nil
