@@ -27,8 +27,9 @@ type newConsensus struct {
 	bufferedNotarizedBlock map[crypto.Identifier]*blockchain.QC
 	committedBlocks        chan *blockchain.Block
 	forkedBlocks           chan *blockchain.Block
-	echoedBlock            map[crypto.Identifier]struct{}
-	echoedVote             map[crypto.Identifier]struct{}
+	echoedQC               map[crypto.Identifier]struct{}
+	//echoedBlock            map[crypto.Identifier]struct{}
+	//echoedVote             map[crypto.Identifier]struct{}
 }
 
 // NewStreamlet creates a new Streamlet instance
@@ -55,8 +56,8 @@ func NewStreamlet(
 	sl.bufferedQCs = make(map[crypto.Identifier]*blockchain.QC)
 	sl.bufferedNotarizedBlock = make(map[crypto.Identifier]*blockchain.QC)
 	sl.notarizedChain = make([][]*blockchain.Block, 0)
-	sl.echoedBlock = make(map[crypto.Identifier]struct{})
-	sl.echoedVote = make(map[crypto.Identifier]struct{})
+	sl.echoedQC = make(map[crypto.Identifier]struct{})
+	//sl.echoedVote = make(map[crypto.Identifier]struct{})
 	//sl.pm.AdvanceView(0)
 	return sl
 }
@@ -125,7 +126,7 @@ func (sl *newConsensus) ProcessBlock(block *blockchain.Block) error {
 	// process buffers
 	qc, ok := sl.bufferedQCs[block.ID]
 	if ok {
-		sl.processCertificate(qc)
+		sl.ProcessCertificate(qc)
 	}
 	b, ok := sl.bufferedBlocks[block.ID]
 	if ok {
@@ -136,6 +137,12 @@ func (sl *newConsensus) ProcessBlock(block *blockchain.Block) error {
 
 func (sl *newConsensus) ProcessVote(vote *blockchain.Vote) {
 	log.Debugf("[%v] is processing the vote, block id: %x", sl.ID(), vote.BlockID)
+	_, exists := sl.echoedQC[vote.BlockID]
+	if exists {
+		log.Debugf("have this vote about QC, block id: %x", sl.ID(), vote.BlockID)
+		return
+	}
+
 	if vote.Voter != sl.ID() {
 		voteIsVerified, err := crypto.PubVerify(vote.Signature, crypto.IDToByte(vote.BlockID), vote.Voter)
 		if err != nil {
@@ -160,7 +167,7 @@ func (sl *newConsensus) ProcessVote(vote *blockchain.Vote) {
 	}
 	// send the QC to the next leader
 	log.Debugf("[%v] a qc is built, view: %v, block id: %x", sl.ID(), qc.View, qc.BlockID)
-	sl.processCertificate(qc)
+	sl.ProcessCertificate(qc)
 
 	return
 }
@@ -201,7 +208,8 @@ func (sl *newConsensus) forkChoice() crypto.Identifier {
 	if sl.GetNotarizedHeight() == 0 {
 		prevID = crypto.MakeID("Genesis block")
 	} else {
-		tailNotarizedBlock := sl.notarizedChain[sl.GetNotarizedHeight()-1][0]
+		size := len(sl.notarizedChain[sl.GetNotarizedHeight()-1])
+		tailNotarizedBlock := sl.notarizedChain[sl.GetNotarizedHeight()-1][size-1]
 		prevID = tailNotarizedBlock.ID
 	}
 	return prevID
@@ -218,19 +226,20 @@ func (sl *newConsensus) processTC(tc *pacemaker.TC) {
 // 2. update notarized chain
 // 3. check commit rule
 // 4. commit blocks
-func (sl *newConsensus) processCertificate(qc *blockchain.QC) {
+func (sl *newConsensus) ProcessCertificate(qc *blockchain.QC) {
 	log.Debugf("[%v] is processing a qc, view: %v, block id: %x", sl.ID(), qc.View, qc.BlockID)
 	if qc.View < sl.pm.GetCurView() {
 		return
 	}
-	log.Debugf("tar1")
+	//log.Debugf("tar1")
+
 	_, err := sl.bc.GetBlockByID(qc.BlockID)
 	if err != nil && qc.View > 1 {
 		log.Debugf("[%v] buffered the QC, view: %v, id: %x", sl.ID(), qc.View, qc.BlockID)
 		sl.bufferedQCs[qc.BlockID] = qc
 		return
 	}
-	log.Debugf("tar2")
+	//log.Debugf("tar2")
 	if qc.Leader != sl.ID() {
 		quorumIsVerified, _ := crypto.VerifyQuorumSignature(qc.AggSig, qc.BlockID, qc.Signers)
 		if quorumIsVerified == false {
@@ -238,7 +247,15 @@ func (sl *newConsensus) processCertificate(qc *blockchain.QC) {
 			return
 		}
 	}
-	log.Debugf("tar3")
+	_, exists := sl.echoedQC[qc.BlockID]
+	if !exists {
+		sl.echoedQC[qc.BlockID] = struct{}{}
+		sl.Broadcast(*qc)
+	} else {
+		log.Debugf("recevied a block [%v] QC twice", qc.BlockID)
+		return
+	}
+	//log.Debugf("tar3")
 	err = sl.updateNotarizedChain(qc)
 	if err != nil {
 		// the corresponding block does not exist
@@ -266,8 +283,8 @@ func (sl *newConsensus) processCertificate(qc *blockchain.QC) {
 			sl.lastCommitedBlock = cBlock
 		}
 		sl.committedBlocks <- cBlock
-		delete(sl.echoedBlock, cBlock.ID)
-		delete(sl.echoedVote, cBlock.ID)
+		//delete(sl.echoedBlock, cBlock.ID)
+		//delete(sl.echoedVote, cBlock.ID)
 		log.Debugf("[%v] is going to commit block, view: %v, id: %x", sl.ID(), cBlock.View, cBlock.ID)
 	}
 	//log.Debugf("tar7")
@@ -285,7 +302,7 @@ func (sl *newConsensus) processCertificate(qc *blockchain.QC) {
 	qc, ok = sl.bufferedNotarizedBlock[qc.BlockID]
 	if ok {
 		log.Debugf("[%v] found a bufferred qc, view: %v, block id: %x", sl.ID(), qc.View, qc.BlockID)
-		sl.processCertificate(qc)
+		sl.ProcessCertificate(qc)
 		delete(sl.bufferedQCs, qc.BlockID)
 	}
 }
@@ -297,7 +314,7 @@ func (sl *newConsensus) updateNotarizedChain(qc *blockchain.QC) error {
 	}
 	// check the last block in the notarized chain
 	// could be improved by checking view
-	log.Debugf("tar8")
+	//log.Debugf("tar8")
 
 	if sl.GetNotarizedHeight() == 0 {
 		log.Debugf("[%v] is processing the first notarized block, view: %v, id: %x", sl.ID(), qc.View, qc.BlockID)
@@ -306,7 +323,7 @@ func (sl *newConsensus) updateNotarizedChain(qc *blockchain.QC) error {
 		sl.notarizedChain = append(sl.notarizedChain, newArray)
 		return nil
 	}
-	log.Debugf("tar9")
+	//log.Debugf("tar9")
 	for i := sl.GetNotarizedHeight() - 1; i >= 0 || i >= sl.GetNotarizedHeight()-3; i-- {
 		lastBlocks := sl.notarizedChain[i]
 		for _, b := range lastBlocks {
@@ -321,7 +338,7 @@ func (sl *newConsensus) updateNotarizedChain(qc *blockchain.QC) error {
 			}
 		}
 	}
-	log.Debugf("tar10")
+	//log.Debugf("tar10")
 	sl.bufferedNotarizedBlock[block.PrevID] = qc
 	log.Debugf("[%v] the parent block is not notarized, buffered for now, view: %v, block id: %x", sl.ID(), qc.View, qc.BlockID)
 	return fmt.Errorf("the block is not extending the notarized chain")

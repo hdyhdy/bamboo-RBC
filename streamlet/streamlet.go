@@ -11,6 +11,8 @@ import (
 	"github.com/gitferry/bamboo/node"
 	"github.com/gitferry/bamboo/pacemaker"
 	"github.com/gitferry/bamboo/types"
+	"math/rand"
+	"time"
 )
 
 type Streamlet struct {
@@ -113,7 +115,7 @@ func (sl *Streamlet) ProcessBlock(block *blockchain.Block) error {
 	// process buffers
 	qc, ok := sl.bufferedQCs[block.ID]
 	if ok {
-		sl.processCertificate(qc)
+		sl.ProcessCertificate(qc)
 	}
 	b, ok := sl.bufferedBlocks[block.ID]
 	if ok {
@@ -148,7 +150,7 @@ func (sl *Streamlet) ProcessVote(vote *blockchain.Vote) {
 	}
 	// send the QC to the next leader
 	log.Debugf("[%v] a qc is built, view: %v, block id: %x", sl.ID(), qc.View, qc.BlockID)
-	sl.processCertificate(qc)
+	sl.ProcessCertificate(qc)
 
 	return
 }
@@ -189,7 +191,15 @@ func (sl *Streamlet) forkChoice() crypto.Identifier {
 	if sl.GetNotarizedHeight() == 0 {
 		prevID = crypto.MakeID("Genesis block")
 	} else {
-		tailNotarizedBlock := sl.notarizedChain[sl.GetNotarizedHeight()-1][0]
+		//tailNotarizedBlock := sl.notarizedChain[sl.GetNotarizedHeight()-1][0]
+		//prevID = tailNotarizedBlock.ID
+		rand.Seed(time.Now().UnixNano())
+		size := len(sl.notarizedChain[sl.GetNotarizedHeight()-1])
+		loc := 0
+		if size != 1 {
+			loc = rand.Intn(size)
+		}
+		tailNotarizedBlock := sl.notarizedChain[sl.GetNotarizedHeight()-1][loc]
 		prevID = tailNotarizedBlock.ID
 	}
 	return prevID
@@ -206,7 +216,7 @@ func (sl *Streamlet) processTC(tc *pacemaker.TC) {
 // 2. update notarized chain
 // 3. check commit rule
 // 4. commit blocks
-func (sl *Streamlet) processCertificate(qc *blockchain.QC) {
+func (sl *Streamlet) ProcessCertificate(qc *blockchain.QC) {
 	log.Debugf("[%v] is processing a qc, view: %v, block id: %x", sl.ID(), qc.View, qc.BlockID)
 	if qc.View < sl.pm.GetCurView() {
 		return
@@ -262,7 +272,7 @@ func (sl *Streamlet) processCertificate(qc *blockchain.QC) {
 	qc, ok = sl.bufferedNotarizedBlock[qc.BlockID]
 	if ok {
 		log.Debugf("[%v] found a bufferred qc, view: %v, block id: %x", sl.ID(), qc.View, qc.BlockID)
-		sl.processCertificate(qc)
+		sl.ProcessCertificate(qc)
 		delete(sl.bufferedQCs, qc.BlockID)
 	}
 }

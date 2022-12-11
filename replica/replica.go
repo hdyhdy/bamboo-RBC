@@ -94,6 +94,7 @@ func NewReplica(id identity.NodeID, alg string, isByz bool) *Replica {
 	r.Register(message.Query{}, r.handleQuery)
 	r.Register(EncBroadCast.Val{}, r.handleVal)
 	r.Register(EncBroadCast.Echo{}, r.handleEcho)
+	r.Register(blockchain.QC{}, r.HandleQC)
 	gob.Register(blockchain.Block{})
 	gob.Register(blockchain.Vote{})
 	gob.Register(pacemaker.TC{})
@@ -101,6 +102,7 @@ func NewReplica(id identity.NodeID, alg string, isByz bool) *Replica {
 	gob.Register(EncBroadCast.Val{})
 	gob.Register(blockchain.CoderBlock{})
 	gob.Register(EncBroadCast.Echo{})
+	gob.Register(blockchain.QC{})
 	//log.Debug("init1 view is ", r.pm.GetCurView())
 	// Is there a better way to reduce the number of parameters?
 	r.alg = alg
@@ -158,6 +160,12 @@ func (r *Replica) HandleTmo(tmo pacemaker.TMO) {
 	}
 	log.Debugf("[%v] received a timeout from %v for view %v", r.ID(), tmo.NodeID, tmo.View)
 	r.eventChan <- tmo
+}
+
+func (r *Replica) HandleQC(QC blockchain.QC) {
+	r.startSignal()
+	log.Debugf("[%v] received a QC frm %v, blockID is %x", QC.Leader, QC.BlockID)
+	r.eventChan <- QC
 }
 
 // handleQuery replies a query with the statistics of the node
@@ -354,6 +362,8 @@ func (r *Replica) Start() {
 			r.voteNo++
 		case pacemaker.TMO:
 			r.Safety.ProcessRemoteTmo(&v)
+		case blockchain.QC:
+			r.Safety.ProcessCertificate(&v)
 		}
 	}
 }
