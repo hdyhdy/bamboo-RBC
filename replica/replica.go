@@ -187,12 +187,14 @@ func (r *Replica) handleTxn(m message.Transaction) {
 	// the first leader kicks off the protocol
 	if r.pm.GetCurView() == 0 {
 		log.Debugf("[%v] is going to kick off the protocol", r.ID())
-		if r.alg == "newConsensus" {
-			r.pm.StartView()
-			r.processNewView(1)
-		} else {
-			r.pm.AdvanceView(0)
-		}
+		//if r.alg == "newConsensus" {
+		//	r.pm.StartView()
+		//	r.processNewView(1)
+		//} else {
+		//	r.pm.AdvanceView(0)
+		//}
+		r.pm.StartView()
+		r.processNewView(1)
 	}
 }
 

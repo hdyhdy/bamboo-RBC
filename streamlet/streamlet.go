@@ -69,6 +69,7 @@ func (sl *Streamlet) ProcessBlock(block *blockchain.Block) error {
 	if block.View < curView {
 		return fmt.Errorf("received a stale block")
 	}
+	//log.Debugf("tar1")
 	_, err := sl.bc.GetBlockByID(block.PrevID)
 	if err != nil && block.View > 1 {
 		// buffer future blocks
@@ -76,15 +77,21 @@ func (sl *Streamlet) ProcessBlock(block *blockchain.Block) error {
 		log.Debugf("[%v] buffer the block for future processing, view: %v, id: %x", sl.ID(), block.View, block.ID)
 		return nil
 	}
+	//log.Debugf("tar2")
+
 	if !sl.Election.IsLeader(block.Proposer, block.View) {
 		return fmt.Errorf("received a proposal (%v) from an invalid leader (%v)", block.View, block.Proposer)
 	}
+	//log.Debugf("tar3")
+
 	if block.Proposer != sl.ID() {
 		blockIsVerified, _ := crypto.PubVerify(block.Sig, crypto.IDToByte(block.ID), block.Proposer)
 		if !blockIsVerified {
 			log.Warningf("[%v] received a block with an invalid signature", sl.ID())
 		}
 	}
+	//log.Debugf("tar4")
+
 	_, exists := sl.echoedBlock[block.ID]
 	if !exists {
 		sl.echoedBlock[block.ID] = struct{}{}
